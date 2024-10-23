@@ -29,12 +29,14 @@ classes = {
     42: 'End of no passing', 43: 'End no passing veh > 3.5 tons'
 }
 
-# Track the last detected sign and the time it was detected
+# Track the last detected sign, its detection time, and a 3-second display period
 last_detected_sign = None
 last_detection_time = 0
-cooldown_period = 5  # seconds
+display_time_limit = 3  # seconds to persist the text
+cooldown_period = 5  # seconds between new sign announcements
 confidence_threshold = 0.75  # 75% confidence required
-
+prediction_buffer = []  # Buffer to store predictions for smoothing
+buffer_size = 5  # Number of frames to average over
 
 def preprocess_image(img):
     img = cv2.resize(img, (30, 30))
@@ -42,12 +44,37 @@ def preprocess_image(img):
     img = np.expand_dims(img, axis=0)
     return img
 
-
 def speak(sign_name):
     # Use TTS in a separate thread
     engine.say(sign_name)
     engine.runAndWait()
 
+def update_heading_with_smoothing(sign_name, confidence):
+    global last_detected_sign, last_detection_time, prediction_buffer
+
+    # Add current prediction to the buffer
+    prediction_buffer.append((sign_name, confidence))
+    if len(prediction_buffer) > buffer_size:
+        prediction_buffer.pop(0)  # Keep buffer size constant
+
+    # Check if the buffer contains consistent predictions
+    predicted_signs = [p[0] for p in prediction_buffer]
+    most_common_sign = max(set(predicted_signs), key=predicted_signs.count)
+
+    # Update the heading only if the most common prediction is consistent
+    if predicted_signs.count(most_common_sign) > (buffer_size // 2):
+        # Check cooldown period and if the sign has changed
+        current_time = time.time()
+        if most_common_sign != last_detected_sign or (current_time - last_detection_time) > cooldown_period:
+            # Update the last detected sign and time
+            last_detected_sign = most_common_sign
+            last_detection_time = current_time
+
+            # Announce the traffic sign using TTS (separate thread)
+            threading.Thread(target=speak, args=(most_common_sign,)).start()
+
+            return most_common_sign
+    return None
 
 def detect_sign(frame):
     global last_detected_sign, last_detection_time
@@ -83,24 +110,25 @@ def detect_sign(frame):
 
             sign_name = classes[sign_class]
 
-            # Check if this is a new detection or a repeated one
-            current_time = time.time()
-            if sign_name != last_detected_sign or (current_time - last_detection_time) > cooldown_period:
-                # Update the last detected sign and time
-                last_detected_sign = sign_name
-                last_detection_time = current_time
+            # Use smoothing and update heading
+            final_sign = update_heading_with_smoothing(sign_name, confidence)
 
-                # Draw rectangle around the detected sign
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-                # Display the name of the traffic sign above the rectangle
-                cv2.putText(frame, sign_name, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
-
-                # Add audio feedback to announce the traffic sign (using threading)
-                threading.Thread(target=speak, args=(sign_name,)).start()
+            if final_sign:
+                # Update detection time when a valid sign is detected
+                last_detection_time = time.time()
 
     return frame
 
+def display_persistent_sign(frame):
+    global last_detected_sign, last_detection_time
+
+    # If the last detected sign exists, check if it is within the display time limit
+    current_time = time.time()
+    if last_detected_sign and (current_time - last_detection_time) < display_time_limit:
+        # Display the persistent sign
+        cv2.putText(frame, last_detected_sign, (30, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+    return frame
 
 # Main function to run the program
 def main():
@@ -112,10 +140,13 @@ def main():
             break
 
         # Detect and recognize traffic signs
-        processed_frame = detect_sign(frame)
+        frame = detect_sign(frame)
+
+        # Display the detected sign for 3 seconds (persistence logic)
+        frame = display_persistent_sign(frame)
 
         # Display the result
-        cv2.imshow('Traffic Sign Detection', processed_frame)
+        cv2.imshow('Traffic Sign Detection', frame)
 
         # Break the loop when 'q' is pressed
         if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -123,7 +154,6 @@ def main():
 
     cap.release()
     cv2.destroyAllWindows()
-
 
 if __name__ == "__main__":
     main()
