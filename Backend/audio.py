@@ -1,4 +1,5 @@
 import cv2
+import os
 import numpy as np
 from keras.models import load_model
 import pyttsx3  # Importing the text-to-speech library
@@ -6,8 +7,9 @@ import threading
 import time
 
 # Load the pre-trained model
-model = load_model('traffic_classifier.h5')
-
+# Absolute path (optional)
+model_path = os.path.join(os.path.dirname(__file__), 'TSR.h5')
+model = load_model(model_path)
 # Initialize the TTS engine
 engine = pyttsx3.init()
 
