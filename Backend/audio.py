@@ -8,7 +8,7 @@ import time
 
 # Load the pre-trained model
 # Absolute path (optional)
-model_path = os.path.join(os.path.dirname(__file__), 'TSR.h5')
+model_path = os.path.join(os.path.dirname(__file__), 'TSR.keras')
 model = load_model(model_path)
 # Initialize the TTS engine
 engine = pyttsx3.init()
